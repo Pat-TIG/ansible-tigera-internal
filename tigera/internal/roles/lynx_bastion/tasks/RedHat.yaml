@@ -1,0 +1,14 @@
+---
+- name: Install required packages
+  yum:
+    name:
+      - git
+      - python3-pip
+  become: yes
+
+- name: Install bird
+  yum:
+    name: bird
+    update_cache: yes
+  become: yes
+  when: bird is defined and bird == 'yes'

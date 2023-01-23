@@ -1,0 +1,15 @@
+---
+- name: Install packages
+  apt:
+    pkg:
+      - python3-pip
+      - acl
+    update_cache: yes
+  become: yes
+
+- name: Install bird
+  apt:
+    name: bird
+    update_cache: yes
+  become: yes
+  when: bird is defined and bird == 'yes'

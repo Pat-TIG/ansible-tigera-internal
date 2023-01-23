@@ -1,0 +1,164 @@
+---
+- name: Install required packages
+  include: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution }}-{{ ansible_distribution_version }}.yaml"
+    - "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yaml"
+    - "{{ ansible_distribution }}.yaml"
+
+- name: Make sure we have a 'wheel' group
+  group:
+    name: wheel
+    state: present
+  become: yes
+
+- name: Set prompt
+  template:
+    src: prompt.sh.j2
+    dest: /etc/profile.d/prompt.sh
+  become: yes
+
+- name: Allow 'wheel' group to have passwordless sudo
+  lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: '^%wheel'
+    line: '%wheel ALL=(ALL) NOPASSWD: ALL'
+    validate: visudo -cf %s
+  become: yes
+
+- name: Create user
+  ansible.builtin.user:
+    name: "{{ user }}"
+    generate_ssh_key: yes
+    password: "{{ password }}"
+    groups: wheel
+    shell: /bin/bash
+  become: yes
+  register: created_user
+
+- name: Persist ssh key
+  set_fact:
+    "{{ key_name }}_bastion_ssh_key": "{{ created_user.ssh_public_key }}"
+
+- name: Add authorized keys
+  ansible.posix.authorized_key:
+    user: "{{ user }}"
+    key: "{{ item }}"
+  loop: "{{ authorized_keys }}"
+  become: yes
+
+- name: Template ssh_config
+  template:
+    src: ssh_config.j2
+    dest: "/home/{{ user }}/.ssh/config"
+    mode: 0600
+    owner: "{{ user }}"
+    group: "{{ user }}"
+  become: yes
+
+- name: Download kubectl binary
+  get_url:
+    url: "https://storage.googleapis.com/kubernetes-release/release/v{{ kubernetes_version }}/bin/linux/amd64/kubectl"
+    mode: 0755
+    dest: "/usr/local/bin"
+  become: yes
+
+- name: Pip packages
+  pip:
+    name:
+      - openshift
+    extra_args: --user
+  become: yes
+  become_user: "{{ user }}"
+
+- name: Clone workbooks repo
+  block:
+    - name: Configure git credentials store
+      command: "git config --global credential.helper store"
+      become: yes
+      become_user: "{{ user }}"
+
+    - name: Template git credentials file
+      template:
+        src: git_credentials.j2
+        dest: "/home/{{ user }}/.git-credentials"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0600
+      become: yes
+
+    - name: Clone repo
+      git:
+        repo: "{{ github_repo | default('https://github.com/tigera-cs/training-lab-workbooks.git') }}"
+        dest: "/home/{{ user }}/training-lab-workbooks"
+      become: yes
+      become_user: "{{ user }}"
+  when: github is defined and github == 'yes'
+
+- name: Create pull secret and license
+  block:
+    - name: Create license
+      template:
+        src: license.yaml.j2
+        dest: "/home/{{ user }}/license.yaml"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+      become: yes
+
+    - name: Pull Secret
+      template:
+        dest: "/home/{{ user }}/config.json"
+        src: pullsecret.json.j2
+        owner: "{{ user }}"
+        group: "{{ user }}"
+      become: yes
+  when: enterprise_license is defined and pull_secret is defined
+
+- name: Install ttyd
+  block:
+    - name: Get ttyd
+      get_url:
+        url: https://github.com/tsl0922/ttyd/releases/download/1.6.3/ttyd.x86_64
+        mode: 0700
+        dest: "/usr/local/sbin/ttyd"
+      become: yes
+
+    - name: Template Systemd service file
+      template:
+        src: ttyd.service.j2
+        dest: /etc/systemd/system/ttyd.service
+      become: yes
+
+    - name: Install service
+      systemd:
+        name: ttyd
+        daemon_reload: yes
+        state: started
+        enabled: yes
+      become: yes
+
+    - name: Set password for tigera user
+      user:
+        name: "{{ user }}"
+        password: "{{ ttyd_password | password_hash('sha512') }}"
+      become: yes
+  when: ttyd is defined and ttyd == 'yes'
+
+- name: Configure bird
+  block:
+    - name: Template bird config
+      template:
+        src: bird.conf.j2
+        dest: /etc/bird/bird.conf
+        owner: bird
+        group: bird
+        mode: 0640
+      become: yes
+
+    - name: Restart bird
+      systemd:
+        name: bird
+        state: restarted
+      become: yes
+  when: bird is defined and bird == 'yes'

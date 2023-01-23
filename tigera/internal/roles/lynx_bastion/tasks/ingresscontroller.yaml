@@ -1,0 +1,8 @@
+---
+- name: Deploy Nginx Ingress controller
+  community.kubernetes.k8s:
+    template: ingresscontroller.yaml.j2
+  become: yes
+  become_user: "{{ user }}"
+  environment:
+    K8S_AUTH_KUBECONFIG: "/home/{{ user }}/.kube/config"
