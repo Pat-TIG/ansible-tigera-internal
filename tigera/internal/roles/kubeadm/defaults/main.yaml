@@ -1,0 +1,4 @@
+---
+kubernetes_version: 1.23.0
+serviceSubnet: 10.49.0.0/16
+podSubnet: 10.48.0.0/16
