@@ -1,0 +1,53 @@
+---
+- name: Install prerequisites for Docker repository
+  apt:
+    pkg:
+    - apt-transport-https
+    - ca-certificates
+    - curl
+    - gnupg2
+    - software-properties-common
+    update_cache: yes
+  register: docker_prereq
+  retries: 100
+  until: docker_prereq is success or ('Failed to lock apt for exclusive operation' not in docker_prereq.msg and '/var/lib/dpkg/lock' not in docker_prereq.msg)
+  become: yes
+
+- name: add docker apt key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  become: yes
+
+- name: add docker apt repo
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+    state: present
+  become: yes
+
+- name: install docker and it's dependencies
+  apt:
+    pkg:
+      - "docker-ce{{ docker_version | default('=5:19.03*') }}"
+      - "docker-ce-cli{{ docker_version | default('=5:19.03*') }}"
+      - "containerd.io{{ containerd_version | default('=1.4*') }}"
+    state: present
+    update_cache: yes
+  register: docker_install
+  retries: 100
+  until: docker_install is success or ('Failed to lock apt for exclusive operation' not in docker_install.msg and '/var/lib/dpkg/lock' not in docker_install.msg)
+  become: yes
+
+- name: Configure Docker
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    mode: 0600
+  become: yes
+
+- name: start and enable docker daemon
+  service:
+    name: docker
+    state: restarted
+    enabled: yes
+  become: yes

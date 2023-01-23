@@ -1,0 +1,47 @@
+---
+# TODO: rhel7/selinux/rke issue preventing typha to work properly
+- name: SElinux permissive
+  selinux:
+    policy: targeted
+    state: permissive
+  become: yes
+
+- name: Add Extras yum repo
+  shell: yum-config-manager --quiet --enable 'Red Hat Enterprise Linux 7 Server - Extras from RHUI (RPMs)'
+  become: yes
+
+- name: Install docker
+  yum:
+    name: "docker-{{ rhel_version[ansible_distribution_version] }}.x86_64"
+    state: present
+  vars:
+    rhel_version:
+      '7.5': "2:1.13.1-75.git8633870.el7_5"
+      '7.6': "2:1.13.1-108.git4ef4b30.el7"
+      '7.7': "2:1.13.1-109.gitcccb291.el7_7"
+      '7.8': "2:1.13.1-162.git64e9980.el7_8"
+      '7.9': "2:1.13.1-203.git0be3e21.el7_9"
+  become: yes
+
+- name: Configure docker daemon
+  copy:
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+    content: |
+      {
+        "group": "dockerroot"
+      }
+  become: yes
+
+- name: Add user to dockerroot group
+  user:
+    name: "{{ ansible_user }}"
+    groups: dockerroot
+  become: yes
+
+- name: Restart Docker
+  systemd:
+    name: docker
+    enabled: yes
+    state: restarted
+  become: yes

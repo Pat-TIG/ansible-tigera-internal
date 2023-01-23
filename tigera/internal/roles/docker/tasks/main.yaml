@@ -1,0 +1,7 @@
+---
+- name: Determine host os
+  include: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution }}-{{ ansible_distribution_version }}.yaml"
+    - "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yaml"
+    - "{{ ansible_distribution }}.yaml"
