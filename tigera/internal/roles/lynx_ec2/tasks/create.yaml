@@ -1,0 +1,32 @@
+---
+- name: Create env specific terraform directory
+  file:
+    state: directory
+    path: "{{ role_path }}/files/{{ env_name }}/"
+
+- name: Copy terraform files
+  copy:
+    remote_src: yes
+    src: "{{ role_path }}/files/terraform/"
+    dest: "{{ role_path }}/files/{{ env_name }}/"
+
+- name: Run Create Terraform
+  community.general.terraform:
+    project_path: "{{ role_path }}/files/{{ env_name }}/"
+    state: present
+    force_init: yes
+    backend_config:
+      conn_str: "{{ postgres_url }}"
+    workspace: "{{ env_name }}"
+    variables:
+      env_name: "{{ env_name }}"
+      public_ssh_key: "{{ lynx_ssh_public_key }}"
+      owner: "{{ tower_user_name | default(lookup('env', 'USER')) }}"
+      os: "{{ os | default('ubuntu-20.04') }}"
+      os_bastion: "{{ os_bastion | default('ubuntu-20.04') }}"
+      azs_count: "{{ azs_count | default('1') }}"
+      control_instance_count: "{{ control_instance_count | default('1') }}"
+      worker_instance_count: "{{ worker_instance_count | default('2') }}"
+      interface_count: "{{ interface_count | default('1') }}"
+      bastion_extra_volume_size: "{{ bastion_extra_volume_size | default('0') }}"
+  register: terraform_output
