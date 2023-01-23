@@ -1,0 +1,11 @@
+---
+- name: Template kubeadm.yaml
+  template:
+    src: kubeadm.yaml.j2
+    dest: /tmp/kubeadm.yaml
+
+- name: Kubeadm join
+  shell:
+    cmd: kubeadm join --config /tmp/kubeadm.yaml
+    creates: /etc/kubernetes/kubelet.conf
+  become: yes

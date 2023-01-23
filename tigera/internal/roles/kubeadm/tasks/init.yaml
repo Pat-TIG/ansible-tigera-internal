@@ -1,0 +1,21 @@
+---
+- name: Template kubeadm.yaml
+  template:
+    src: kubeadm.yaml.j2
+    dest: /tmp/kubeadm.yaml
+
+- name: Kubeadm init
+  shell:
+    cmd: kubeadm init --config /tmp/kubeadm.yaml
+    creates: /etc/kubernetes/manifests/kube-apiserver.yaml
+  become: yes
+
+- name: Load data
+  slurp:
+    src: /etc/kubernetes/admin.conf
+  become: yes
+  register: slurped_kubeconfig
+
+- name: Decode data and store as fact
+  set_fact:
+    kubeconfig_base64: "{{ slurped_kubeconfig.content }}"

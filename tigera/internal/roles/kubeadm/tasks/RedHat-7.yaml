@@ -1,0 +1,7 @@
+---
+# TODO: rhel7/selinux/rke issue preventing typha to work properly
+- name: SElinux permissive
+  selinux:
+    policy: targeted
+    state: permissive
+  become: yes

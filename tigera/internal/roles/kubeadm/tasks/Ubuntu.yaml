@@ -1,0 +1,40 @@
+---
+- name: add kubernetes apt key
+  apt_key:
+    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    state: present
+  become: yes
+
+- name: add kubernetes apt repo
+  apt_repository:
+    repo: "deb [arch=amd64] https://apt.kubernetes.io/ kubernetes-xenial main"
+    state: present
+    update_cache: yes
+  become: yes
+
+- name: install kubernetes and it's dependencies
+  apt:
+    pkg:
+      - "kubeadm{{ k8s_version }}"
+      - "kubelet{{ k8s_version }}"
+      - "kubectl{{ k8s_version }}"
+    state: present
+  register: k8s_install
+  retries: 100
+  until: k8s_install is success or ('Failed to lock apt for exclusive operation' not in k8s_install.msg and '/var/lib/dpkg/lock' not in k8s_install.msg)
+  become: yes
+  vars:
+    k8s_version: "{{ '=' + kubernetes_version + '-00' if kubernetes_version is defined else ''}}"
+
+- name: Enable and restart kubelet
+  ansible.builtin.systemd:
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
+    name: kubelet
+  become: yes
+
+# TODO: get this done in terraform instead
+- name: Set hostname
+  shell: hostnamectl set-hostname $(curl -s http://169.254.169.254/latest/meta-data/local-hostname)
+  become: yes
