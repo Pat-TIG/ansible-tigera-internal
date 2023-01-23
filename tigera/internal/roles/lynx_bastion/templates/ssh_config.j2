@@ -1,0 +1,10 @@
+{% for host in hostvars['localhost']['groups'][key_name] | intersect(hostvars['localhost']['groups']['control']) %}
+Host control{{ loop.index }}
+  Hostname {{ hostvars[host]['private_dns_name'] }}
+  User {{ hostvars[host]['ansible_user'] }}
+{% endfor %}
+{% for host in hostvars['localhost']['groups'][key_name] | intersect(hostvars['localhost']['groups']['worker']) %}
+Host worker{{ loop.index }}
+  Hostname {{ hostvars[host]['private_dns_name'] }}
+  User {{ hostvars[host]['ansible_user'] }}
+{% endfor %}
