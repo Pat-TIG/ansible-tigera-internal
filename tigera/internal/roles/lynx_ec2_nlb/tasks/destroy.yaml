@@ -1,0 +1,89 @@
+---
+- name: Find CNAME
+  community.aws.route53:
+    state: get
+    zone: "{{ dns_domain }}"
+    record: "{{ env_name }}.{{ dns_domain }}"
+    type: CNAME
+  register: rec
+
+- name: Delete DNS CNAME record
+  community.aws.route53:
+    state: absent
+    zone: "{{ dns_domain }}"
+    record: "{{ env_name }}.{{ dns_domain }}"
+    ttl: 60
+    type: CNAME
+    value: "{{ rec.set.ResourceRecords[0].Value }}"
+  when: rec.set and rec.set != {}
+
+- name: Find Wildcard CNAME
+  community.aws.route53:
+    state: get
+    zone: "{{ dns_domain }}"
+    record: "\\052.{{ env_name }}.{{ dns_domain }}"
+    ttl: 60
+    type: CNAME
+  register: rec2
+
+- debug: msg="{{ rec2 }}"
+
+- name: Delete DNS CNAME record
+  community.aws.route53:
+    state: absent
+    zone: "{{ dns_domain }}"
+    record: "\\052.{{ env_name }}.{{ dns_domain }}"
+    ttl: 60
+    type: CNAME
+    value: "{{ rec2.set.ResourceRecords[0].Value }}"
+  when: rec2.set and rec2.set != {}
+
+- name: Find Instances
+  community.aws.ec2_instance_info:
+    filters:
+      "tag:tigera.fr/environment": "{{ env_name }}"
+      "tag:tigera.fr/role": "control"
+  register: ec2
+
+- name: Get Subnets
+  amazon.aws.ec2_vpc_subnet_info:
+    filters:
+      "tag:tigera.fr/environment": "{{ env_name }}"
+  register: subnets
+
+- name: Delete a NLB
+  community.aws.elb_network_lb:
+    state: absent
+    name: "{{ env_name }}"
+    subnets: "{{ subnets | json_query(query) }}"
+  vars:
+    query: "subnets[?tags.\"kubernetes.io/role/elb\"=='1'].subnet_id"
+  register: aws_nlb
+
+- name: Delete Control LB target group
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-control"
+    state: absent
+
+- name: Delete Control LB target group
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-control-ui"
+    state: absent
+- name: Delete Control LB target group
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-control-kib"
+    state: absent
+- name: Delete an Worker LB target group
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-worker"
+    state: absent
+
+- name: Delete an Basion LB target group
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-bastion"
+    state: absent
+
+- name: Delete Bastion SSH LB target group
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-bastion-ssh"
+    state: absent

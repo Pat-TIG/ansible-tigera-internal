@@ -1,0 +1,182 @@
+---
+- name: Find Control Instances
+  community.aws.ec2_instance_info:
+    filters:
+      "tag:tigera.fr/environment": "{{ env_name }}"
+      "tag:tigera.fr/role": "control"
+      instance-state-name: [ "pending", "running", "shutting-down", "stopping", "stopped" ]
+  register: ec2_control
+
+- name: Find Worker Instances
+  community.aws.ec2_instance_info:
+    filters:
+      "tag:tigera.fr/environment": "{{ env_name }}"
+      "tag:tigera.fr/role": "worker"
+      instance-state-name: [ "pending", "running", "shutting-down", "stopping", "stopped" ]
+  register: ec2_worker
+
+- name: Find Bastion Instances
+  community.aws.ec2_instance_info:
+    filters:
+      "tag:tigera.fr/environment": "{{ env_name }}"
+      "tag:tigera.fr/role": "bastion"
+      instance-state-name: [ "pending", "running", "shutting-down", "stopping", "stopped" ]
+  register: ec2_bastion
+
+- name: Get Subnets
+  amazon.aws.ec2_vpc_subnet_info:
+    filters:
+      "tag:tigera.fr/environment": "{{ env_name }}"
+  register: subnets
+
+- name: Create an ELB target group for Control
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-control"
+    state: "{{ state | default('present') }}"
+    vpc_id: "{{ ec2_control.instances[0].vpc_id }}"
+    protocol: TCP
+    port: 6443
+    targets: "{{ ec2_control | json_query(query) }}"
+    tags:
+      'tigera.fr/environment': "{{ env_name }}"
+  vars:
+    query: "instances[*].{Id: instance_id, Port: `6443`}"
+  register: control_target
+
+- name: Create an ELB target group for Control UI
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-control-ui"
+    state: "{{ state | default('present') }}"
+    vpc_id: "{{ ec2_control.instances[0].vpc_id }}"
+    protocol: TCP
+    port: 30003
+    targets: "{{ ec2_control | json_query(query) }}"
+    tags:
+      'tigera.fr/environment': "{{ env_name }}"
+  vars:
+    query: "instances[*].{Id: instance_id, Port: `30003`}"
+  register: control_target_ui
+
+- name: Create an ELB target group for Control Kibana
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-control-kib"
+    state: "{{ state | default('present') }}"
+    vpc_id: "{{ ec2_control.instances[0].vpc_id }}"
+    protocol: TCP
+    port: 30006
+    targets: "{{ ec2_control | json_query(query) }}"
+    tags:
+      'tigera.fr/environment': "{{ env_name }}"
+  vars:
+    query: "instances[*].{Id: instance_id, Port: `30006`}"
+  register: control_target_kib
+
+- name: Create an ELB target group for Worker
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-worker"
+    state: "{{ state | default('present') }}"
+    vpc_id: "{{ ec2_worker.instances[0].vpc_id }}"
+    protocol: TCP
+    port: 443
+    targets: "{{ ec2_worker | json_query(query) }}"
+    tags:
+      'tigera.fr/environment': "{{ env_name }}"
+  vars:
+    query: "instances[*].{Id: instance_id, Port: `443`}"
+  register: worker_target
+
+- name: Create an ELB target group for Bastion
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-bastion"
+    state: "{{ state | default('present') }}"
+    vpc_id: "{{ ec2_bastion.instances[0].vpc_id }}"
+    protocol: TCP
+    port: 80
+    targets: "{{ ec2_bastion | json_query(query) }}"
+    tags:
+      'tigera.fr/environment': "{{ env_name }}"
+  vars:
+    query: "instances[*].{Id: instance_id, Port: `80`}"
+  register: bastion_target
+
+- name: Create an ELB target group for Bastion SSH
+  community.aws.elb_target_group:
+    name: "{{ env_name }}-bastion-ssh"
+    state: "{{ state | default('present') }}"
+    vpc_id: "{{ ec2_bastion.instances[0].vpc_id }}"
+    protocol: TCP
+    port: 22
+    targets: "{{ ec2_bastion | json_query(query) }}"
+    tags:
+      'tigera.fr/environment': "{{ env_name }}"
+  vars:
+    query: "instances[*].{Id: instance_id, Port: `22`}"
+  register: bastion_target_ssh
+
+- name: Create a NLB
+  community.aws.elb_network_lb:
+    state: "{{ state | default('present') }}"
+    name: "{{ env_name }}"
+    subnets: "{{ subnets | json_query(query) }}"
+    listeners:
+      - Protocol: TCP
+        Port: 6443
+        DefaultActions:
+          - Type: forward
+            TargetGroupName: "{{ env_name }}-control"
+      - Protocol: TCP
+        Port: 30003
+        DefaultActions:
+          - Type: forward
+            TargetGroupName: "{{ env_name }}-control-ui"
+      - Protocol: TCP
+        Port: 30006
+        DefaultActions:
+          - Type: forward
+            TargetGroupName: "{{ env_name }}-control-kib"
+      - Protocol: TCP
+        Port: 443
+        DefaultActions:
+          - Type: forward
+            TargetGroupName: "{{ env_name }}-worker"
+      - Protocol: TCP
+        Port: 80
+        DefaultActions:
+          - Type: forward
+            TargetGroupName: "{{ env_name }}-bastion"
+      - Protocol: TCP
+        Port: 22
+        DefaultActions:
+          - Type: forward
+            TargetGroupName: "{{ env_name }}-bastion-ssh"
+    tags:
+      'tigera.fr/environment': "{{ env_name }}"
+  vars:
+    query: "subnets[?tags.\"kubernetes.io/role/elb\"=='1'].subnet_id"
+  register: aws_nlb
+
+- name: Create DNS CNAME record
+  community.aws.route53:
+    state: present
+    zone: "{{ dns_domain }}"
+    ttl: 60
+    overwrite: yes
+    type: CNAME
+    record: "{{ env_name }}.{{ dns_domain }}"
+    value: "{{ aws_nlb.dns_name }}"
+
+- name: Create DNS CNAME record
+  community.aws.route53:
+    state: present
+    zone: "{{ dns_domain }}"
+    ttl: 60
+    overwrite: yes
+    type: CNAME
+    record: "*.{{ env_name }}.{{ dns_domain }}"
+    value: "{{ aws_nlb.dns_name }}"
+
+- name: Persist NLB DNS name
+  set_fact:
+    dns_names: 
+      - "{{ env_name }}.{{ dns_domain }}"
+      - "{{ aws_nlb.dns_name }}"
